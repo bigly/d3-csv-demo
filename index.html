@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Line chart with navigator - D3.js v7</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Roboto,'Helvetica Neue',Helvetica,Arial,sans-serif;
+            font-size: 1.2em;
+            font-weight: 300;
+            letter-spacing: .01em;
+            line-height: 1.6;
+            text-align: center;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        #chart-container {
+            margin-top: 40px;
+        }
+
+        .axis-label {
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .brush .selection {
+            fill: rgba(128, 179, 236, 0.3);
+            stroke: rgb(192, 192, 192);
+            stroke-width: 1px;
+        }
+
+        .line,
+        .area {
+            clip-path: url(#clip);
+        }
+
+        .line {
+            fill: none;
+            stroke: rgb(69, 114, 167);
+            stroke-width: 1;
+        }
+
+        .area {
+            fill: rgba(69, 114, 167, 0.1);
+            stroke: rgb(192, 192, 192);
+            stroke-width: 1px;
+        }
+
+        .zoom {
+            fill: none;
+            pointer-events: all;
+        }
+    </style>
+</head>
+<body>
+    
+    <h2>Line chart with navigator - D3.js v7</h2>
+
+    <!-- Select list for different data URLs -->
+    <label for="data-select">Choose Data:</label>
+    <select id="data-select">
+        <option value="https://bigly.biz/data/csv/37af700a-2bdc-11ea-a722-f3068f3e9f6e">Oat Crop</option>
+        <option value="https://bigly.biz/data/csv/3b52bf46-2bdc-11ea-a773-2bef8b402a0f">Rye Crop</option>
+        <option value="https://bigly.biz/data/csv/2ee738ea-2bdc-11ea-a669-3be47a8fe955">Corn Crop</option>
+    </select>
+
+    <!-- Chart container -->
+    <div id="chart-container">
+        <div id="chart"></div>
+    </div>
+
+    <script>
+        // Overall dimensions
+        const totalWidth = 800, totalHeight = 560, chartHeight = 400;
+
+        // dimensions and margins for the chart
+        const margin = { top: 20, right: 30, bottom: 60, left: 60 },
+            width = totalWidth - margin.left - margin.right,
+            height = chartHeight - margin.top - margin.bottom;
+
+        // dimensions and margins for the navigator
+        const marginNav = { top: chartHeight + margin.top, right: margin.right, bottom: margin.bottom, left: margin.left },
+            heightNav = totalHeight - marginNav.top - marginNav.bottom;
+
+        // Function to load and update the chart based on selected data URL
+        function loadChart(dataUrl) {
+
+            // Remove previous chart and navigator elements before drawing new ones
+            d3.select("#chart").selectAll("*").remove();
+
+            // Create SVG element
+            const svg = d3.select("#chart")
+                .append("svg")
+                .attr("width", totalWidth)
+                .attr("height", totalHeight);
+
+            // Clip path to constrain the visible part within the chart's area
+            svg.append("defs").append("clipPath")
+                .attr("id", "clip")
+                .append("rect")
+                .attr("width", width)
+                .attr("height", height);
+
+            const chart = svg.append("g")
+                .attr("class", "chart")
+                .attr("transform", `translate(${margin.left},${margin.top})`)
+
+            const navigator = svg.append("g")
+                .attr("class", "navigator")
+                .attr("transform", `translate(${marginNav.left},${marginNav.top})`)
+
+            // Parse the date / time format
+            const parseDate = d3.timeParse("%Y"); // Data in demo is in years
+
+            // Components
+            const xChart = d3.scaleTime().range([0, width]),
+                yChart = d3.scaleLinear().range([height, 0]);
+
+            const xAxisChart = d3.axisBottom(xChart),
+                yAxisChart = d3.axisLeft(yChart);
+
+            const lineChart = d3.line()
+                .x(d => xChart(d.x))
+                .y(d => yChart(d.y));
+
+            const xNav = d3.scaleTime().range([0, width]),
+                yNav = d3.scaleLinear().range([heightNav, 0]);
+
+            const xAxisNav = d3.axisBottom(xNav);
+
+            const lineNav = d3.line()
+                .x(d => xNav(d.x))
+                .y(d => yNav(d.y));
+
+            const areaNav = d3.area()
+                .curve(d3.curveLinear)
+                .x(function (d) { return xNav(d.x); })
+                .y0(heightNav)
+                .y1(function (d) { return yNav(d.y); });
+
+            const brushX = d3.brushX()
+                .extent([[0, 0], [width, heightNav - 1]])
+                .on("brush end", brushed);
+
+            const zoom = d3.zoom()
+                .scaleExtent([1, Infinity])
+                .translateExtent([[0, 0], [width, height]])
+                .extent([[0, 0], [width, height]])
+                .on("zoom", zoomed);
+
+            // Load CSV data from the selected URL
+            d3.csv(dataUrl).then(function (data) {
+
+                // Extract the header names for axis labeling
+                const headers = Object.keys(data[0]);
+                const xHeader = headers[0]; // The first header (for year)
+                const yHeader = headers[1]; // The second header (for value)
+
+                // Convert date strings to Date objects and values to numbers
+                data.forEach(d => {
+                    d.x = parseDate(d[xHeader]);
+                    d.y = +d[yHeader];
+                });
+
+                // Chart components
+
+                // Set the scales
+                xChart.domain(d3.extent(data, d => d.x));
+                yChart.domain([0, d3.max(data, d => d.y)]);
+
+                // Append the line to the chart
+                chart.append("path")
+                    .datum(data)
+                    .attr("class", "line")
+                    .attr("d", lineChart);
+
+                // Add the x-axis
+                chart.append("g")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(xAxisChart);
+
+                // Add the y-axis
+                chart.append("g")
+                    .call(yAxisChart);
+
+                // Add the x-axis label
+                chart.append("text")
+                    .attr("class", "axis-label")
+                    .attr("text-anchor", "middle")
+                    .attr("x", width / 2)
+                    .attr("y", height + margin.bottom - 10)
+                    .text(xHeader);
+
+                // Add the y-axis label
+                chart.append("text")
+                    .attr("class", "axis-label")
+                    .attr("text-anchor", "middle")
+                    .attr("transform", "rotate(-90)")
+                    .attr("x", -height / 2)
+                    .attr("y", -margin.left + 15)
+                    .text(yHeader);
+
+                // Navigator components
+
+                // Set the scales
+                xNav.domain(xChart.domain());
+                yNav.domain(yChart.domain())
+
+                navigator.append("path")
+                    .datum(data)
+                    .attr("class", "line")
+                    .attr("d", lineNav);
+
+                navigator.append("path")
+                    .datum(data)
+                    .attr("class", "area")
+                    .attr("d", areaNav);
+
+                navigator.append("g")
+                    .attr("class", "axis x-axis")
+                    .attr("transform", "translate(0," + heightNav + ")")
+                    .call(xAxisNav);
+
+                navigator.append("g")
+                    .attr("class", "brush")
+                    .call(brushX)
+                    .call(brushX.move, xChart.range());
+
+                svg.append("rect")
+                    .attr("class", "zoom")
+                    .attr("width", width)
+                    .attr("height", height)
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+                    .call(zoom);
+
+            }).catch(function (error) {
+                console.error('Error loading or parsing the data:', error);
+            });
+
+            function brushed(event) {
+                if (!event.sourceEvent) return;
+                var s = event.selection || xNav.range();
+                xChart.domain(s.map(xNav.invert, xNav));
+                chart.select(".line").attr("d", lineChart);
+                chart.select(".x-axis").call(xAxisChart);
+                svg.select(".zoom").call(zoom.transform, d3.zoomIdentity
+                    .scale(width / (s[1] - s[0]))
+                    .translate(-s[0], 0));
+            }
+
+            function zoomed(event) {
+                if (!event.sourceEvent) return;
+                var t = event.transform;
+                xChart.domain(t.rescaleX(xNav).domain());
+                chart.select(".line").attr("d", lineChart);
+                chart.select(".x-axis").call(xAxisChart);
+                navigator.select(".brush").call(brushX.move, xChart.range().map(t.invertX, t));
+            }
+        }        
+
+        // Load the default dataset when the page loads
+        const defaultUrl = document.getElementById('data-select').value;
+        loadChart(defaultUrl);
+
+        // Add event listener to update the chart when a new dataset is selected
+        document.getElementById('data-select').addEventListener('change', function () {
+            const selectedUrl = this.value;
+            loadChart(selectedUrl);
+        });
+
+    </script>
+
+</body>
+</html>
